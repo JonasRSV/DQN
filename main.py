@@ -16,7 +16,7 @@ LEARNING_RATE = 0.01
 FRAME_SZ      = 200
 BATCHSZ       = 32
 MEMORY        = 0.95
-DECAY         = 1 - 1e-2
+DECAY         = 1 - 5e-2
 EXPLORATION   = 1
 
 
