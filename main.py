@@ -11,7 +11,7 @@ GENERATIONS = 10000
 
 ACTION_SPACE  = 2
 STATE_SPACE   = 4 
-LEARNING_RATE = 0.1
+LEARNING_RATE = 0.01
 
 FRAME_SZ      = 200
 BATCHSZ       = 32
@@ -28,7 +28,9 @@ def train(env, actor, rpbuffer):
         s1     = env.reset()
         dead   = False
         frames = 0
-        
+
+        options = [0, 0]
+
         while not dead:
             frames += 1
             env.render()
@@ -37,10 +39,12 @@ def train(env, actor, rpbuffer):
             s = s1.reshape(1, -1)
 
             action = None
-            if np.random.rand() > 0.3:
+            if np.random.rand() > 0.2:
                 action = actor.predict(s)[0]
             else:
                 action = np.random.choice(actions)
+
+            options[action] += 1
 
             s2, r2, dead, _ = env.step(action)
             
@@ -48,7 +52,7 @@ def train(env, actor, rpbuffer):
 
             s1 = s2
 
-            s1b, a1b, r1b, dd, s2b = replay_buffer.get(BATCHSZ)
+            s1b, a1b, r1b, dd, s2b = rpbuffer.get(BATCHSZ)
             Qvalues = actor.Q_value(s2b)
 
             yi = []
@@ -66,9 +70,36 @@ def train(env, actor, rpbuffer):
 
         plt.pause(0.001)
 
+    env.close()
 
+
+def play(env, actor, games=20):
+    
+    game   = []
+    frames = []
+    for i in range(games):
+        dead = False
+        s0 = env.reset()
+
+
+        frame = 0
+        while not dead:
+            env.render()
+            frame += 1
+
+            s0 = s0.reshape(1, -1)
+            action = actor.predict(s0)[0]
+
+            s0, _, dead, _ = env.step(action)
+
+        game.append(i)
+        frames.append(frame)
+        print(game, games)
+        plt.plot(game, frames)
+        plt.pause(0.001)
 
     env.close()
+
 
 if __name__ == "__main__":
 
@@ -76,17 +107,22 @@ if __name__ == "__main__":
 
     with tf.Session() as sess:
         actor         = dqn.DQN(sess, LEARNING_RATE, ACTION_SPACE, STATE_SPACE)
-        replay_buffer = replay_buffer.ReplayBuffer(FRAME_SZ)
+        rpbuffer = replay_buffer.ReplayBuffer(FRAME_SZ)
 
         saver = tf.train.Saver()
 
         if "-r" in sys.argv:
             saver.restore(sess, "model/")
+            print("Restored...")
         else:
             sess.run(tf.global_variables_initializer())
 
         try: 
-            train(env, actor, replay_buffer)
+            if "-p" in sys.argv:
+                print("Playing...")
+                play(env, actor)
+            else:
+                train(env, actor, rpbuffer)
         except KeyboardInterrupt:
             pass
 

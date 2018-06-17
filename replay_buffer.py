@@ -6,20 +6,17 @@ class ReplayBuffer(object):
 
 
     def __init__(self, capacity):
-        self.buffer = deque(maxlen=capacity)
-        self.size   = 0
+        self.buffer   = deque(maxlen=capacity)
+        self.capacity = capacity
 
 
     def add(self, frame):
-        self.size += 1
         self.buffer.append(frame)
-
-        return self.size
 
     def get(self, batchsz):
 
-        if self.size < batchsz:
-            batchsz = self.size
+        if len(self.buffer) < batchsz:
+            batchsz = len(self.buffer)
 
         choices = random.sample(self.buffer, batchsz)
 
@@ -29,7 +26,7 @@ class ReplayBuffer(object):
         db_1 = []
         sb_2 = []
 
-        while self.size and batchsz:
+        while batchsz:
             sb, ab, rb, db, sb_ = choices.pop()
 
             sb_1.append(sb)
@@ -38,7 +35,6 @@ class ReplayBuffer(object):
             db_1.append(db)
             sb_2.append(sb_)
 
-            self.size -= 1
             batchsz   -= 1
 
         """ numpyfy """

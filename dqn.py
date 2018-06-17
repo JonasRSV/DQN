@@ -54,7 +54,7 @@ class DQN(object):
         h1       = tf.nn.tanh(h1 + dense0_b)
 
         out      = tf.matmul(h1, out_w)
-        out      = tf.nn.relu(out + out_b)
+        out      = out + out_b
 
         return state, out
 
@@ -63,12 +63,20 @@ class DQN(object):
         action    = tf.placeholder(tf.int32,   [None])
         label     = tf.placeholder(tf.float32, [None])
 
-        lshape    = tf.reshape(label, [-1, 1])
-        choice    = tf.one_hot(action, self.action_space)
-        choice    = tf.multiply(choice, lshape)
+        new_Q     = tf.reshape(label, [-1, 1])
+        new_Q_a   = tf.one_hot(action, self.action_space)
 
-        loss      = tf.losses.mean_squared_error(out, choice)
-        optimizer = tf.train.AdadeltaOptimizer(learning_rate=self.learning_rate).minimize(loss)
+        c         = tf.multiply(new_Q, new_Q_a)
+
+        """ Manipulate so that only action Q_value is updated with c"""
+        om        = tf.multiply(out, new_Q_a)
+        om        = tf.subtract(out, om)
+
+        guess     = tf.add(c, om)
+
+
+        loss      = tf.losses.mean_squared_error(out, guess)
+        optimizer = tf.train.GradientDescentOptimizer(learning_rate=self.learning_rate).minimize(loss)
 
         return action, label, loss, optimizer
 
@@ -77,8 +85,7 @@ class DQN(object):
 
 
     def Q_value(self, state):
-        return self.session.run(self.out,
-                                feed_dict={self.state: state})
+        return self.session.run(self.out, feed_dict={self.state: state})
 
     def train(self, state, action, label):
         _, l = self.session.run((self.optimize, self.loss),
