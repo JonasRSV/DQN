@@ -29,8 +29,6 @@ def train(env, actor, rpbuffer):
         dead   = False
         frames = 0
 
-        options = [0, 0]
-
         while not dead:
             frames += 1
             env.render()
@@ -43,8 +41,6 @@ def train(env, actor, rpbuffer):
                 action = actor.predict(s)[0]
             else:
                 action = np.random.choice(actions)
-
-            options[action] += 1
 
             s2, r2, dead, _ = env.step(action)
             
