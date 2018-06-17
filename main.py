@@ -15,15 +15,18 @@ LEARNING_RATE = 0.01
 
 FRAME_SZ      = 200
 BATCHSZ       = 32
-MEMORY        = 0.8
+MEMORY        = 0.95
+DECAY         = 1 - 1e-2
+EXPLORATION   = 1
+
 
 def train(env, actor, rpbuffer):
-    global GENERATIONS
+    global GENERATIONS, EXPLORATION, DECAY
 
     actions = np.arange(ACTION_SPACE)
 
-    total_frames = []
-    generations  = []
+    frame = []
+    gen   = []
     for g in range(GENERATIONS):
         s1     = env.reset()
         dead   = False
@@ -33,23 +36,27 @@ def train(env, actor, rpbuffer):
             frames += 1
             env.render()
 
-            
             s = s1.reshape(1, -1)
 
             action = None
-            if np.random.rand() > 0.2:
+            if np.random.rand() > EXPLORATION:
                 action = actor.predict(s)[0]
             else:
                 action = np.random.choice(actions)
 
             s2, r2, dead, _ = env.step(action)
-            
-            rpbuffer.add((s1, action, r2, dead, s2))
 
+            if dead and frames == 200:
+                """Extra bonus for winning!"""
+                r2 = 30
+
+            rpbuffer.add((s1, action, r2, dead, s2))
             s1 = s2
 
             s1b, a1b, r1b, dd, s2b = rpbuffer.get(BATCHSZ)
             Qvalues = actor.Q_value(s2b)
+
+
 
             yi = []
             for d, r, Q in zip(dd, r1b, Qvalues):
@@ -60,10 +67,13 @@ def train(env, actor, rpbuffer):
 
             l = actor.train(s1b, a1b, yi)
 
-        total_frames.append(frames)
-        generations.append(g)
-        plt.plot(generations, total_frames)
+        EXPLORATION = EXPLORATION * DECAY
 
+        frame.append(frames)
+        gen.append(g)
+        
+        sys.stdout.write("\rEXPLORATION {} \r".format(EXPLORATION))
+        plt.plot(gen, frame)
         plt.pause(0.001)
 
     env.close()
