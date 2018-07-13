@@ -58,6 +58,9 @@ class DQN(object):
 
         self.update_op = update_op
 
+        # Use var_index if this is not the first network that is created.
+        self.var_index = var_index + len(vanilla_variables) + len(target_variables)
+
     def create_network(self, name):
 
         with tf.name_scope(name):

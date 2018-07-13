@@ -7,17 +7,20 @@ import numpy as np
 import tensorflow as tf
 import matplotlib.pyplot as plt
 
-GENERATIONS = 10000
 
+ENV = 'CartPole-v0'
+
+GENERATIONS = 200
 ACTION_SPACE  = 2
 STATE_SPACE   = 4 
 LEARNING_RATE = 0.01
 
 FRAME_SZ      = 200
-BATCHSZ       = 32
+BATCHSZ       = 20
 MEMORY        = 0.95
 DECAY         = 1 - 2e-2
 EXPLORATION   = 1
+TAU           = 0.1
 
 
 def train(env, actor, rpbuffer):
@@ -96,10 +99,10 @@ def play(env, actor, games=20):
 
 if __name__ == "__main__":
 
-    env = gym.make('CartPole-v0')
+    env = gym.make(ENV)
 
     with tf.Session() as sess:
-        actor         = dqn.DQN(sess, LEARNING_RATE, ACTION_SPACE, STATE_SPACE)
+        actor         = dqn.DQN(sess, LEARNING_RATE, ACTION_SPACE, STATE_SPACE, tau=TAU)
         rpbuffer = replay_buffer.ReplayBuffer(FRAME_SZ)
 
         saver = tf.train.Saver()
