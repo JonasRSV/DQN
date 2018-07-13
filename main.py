@@ -16,24 +16,26 @@ LEARNING_RATE = 0.01
 FRAME_SZ      = 200
 BATCHSZ       = 32
 MEMORY        = 0.95
-DECAY         = 1 - 5e-2
+DECAY         = 1 - 2e-2
 EXPLORATION   = 1
 
 
 def train(env, actor, rpbuffer):
     global GENERATIONS, EXPLORATION, DECAY
 
+    actor.update_target_network()
+
+    plt.style.use('dark_background')
     actions = np.arange(ACTION_SPACE)
 
-    frame = []
-    gen   = []
+    generations   = []
+    rewards       = []
     for g in range(GENERATIONS):
-        s1     = env.reset()
-        dead   = False
-        frames = 0
+        s1       = env.reset()
+        terminal = False
 
-        while not dead:
-            frames += 1
+        reward = 0
+        while not terminal:
             env.render()
 
             s = s1.reshape(1, -1)
@@ -44,19 +46,14 @@ def train(env, actor, rpbuffer):
             else:
                 action = np.random.choice(actions)
 
-            s2, r2, dead, _ = env.step(action)
+            s2, r2, terminal, _ = env.step(action)
+            reward += r2
 
-            if dead and frames == 200:
-                """Extra bonus for winning!"""
-                r2 = 30
-
-            rpbuffer.add((s1, action, r2, dead, s2))
+            rpbuffer.add((s1, action, r2, terminal, s2))
             s1 = s2
 
             s1b, a1b, r1b, dd, s2b = rpbuffer.get(BATCHSZ)
-            Qvalues = actor.Q_value(s2b)
-
-
+            Qvalues = actor.target_Q_value(s2b)
 
             yi = []
             for d, r, Q in zip(dd, r1b, Qvalues):
@@ -67,42 +64,32 @@ def train(env, actor, rpbuffer):
 
             l = actor.train(s1b, a1b, yi)
 
+            actor.update_target_network()
+
         EXPLORATION = EXPLORATION * DECAY
 
-        frame.append(frames)
-        gen.append(g)
+        generations.append(g)
+        rewards.append(reward)
         
         sys.stdout.write("\rEXPLORATION {} \r".format(EXPLORATION))
-        plt.plot(gen, frame)
+        plt.plot(generations, rewards)
         plt.pause(0.001)
 
     env.close()
 
 
 def play(env, actor, games=20):
-    
-    game   = []
-    frames = []
     for i in range(games):
-        dead = False
+        terminal = False
         s0 = env.reset()
 
 
-        frame = 0
-        while not dead:
+        while not terminal:
             env.render()
-            frame += 1
-
             s0 = s0.reshape(1, -1)
             action = actor.predict(s0)[0]
 
-            s0, _, dead, _ = env.step(action)
-
-        game.append(i)
-        frames.append(frame)
-        print(game, games)
-        plt.plot(game, frames)
-        plt.pause(0.001)
+            s0, _, terminal, _ = env.step(action)
 
     env.close()
 
