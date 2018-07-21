@@ -10,48 +10,45 @@ import matplotlib.pyplot as plt
 
 ENV = 'CartPole-v0'
 
-GENERATIONS = 200
+EPOCHS = 200
 ACTION_SPACE  = 2
 STATE_SPACE   = 4 
 LEARNING_RATE = 0.01
 
 FRAME_SZ      = 200
 BATCHSZ       = 20
-MEMORY        = 0.95
-DECAY         = 1 - 2e-2
-EXPLORATION   = 1
+MEMORY        = 0.98
+
 TAU           = 0.1
 
 
-def train(env, actor, rpbuffer):
-    global GENERATIONS, EXPLORATION, DECAY
-
+def train(env, actor, rpbuffer, action_noise=True):
     actor.update_target_network()
-
-    plt.style.use('dark_background')
     actions = np.arange(ACTION_SPACE)
 
-    generations   = []
-    rewards       = []
-    for g in range(GENERATIONS):
+    EXP = 1
+    DEC = 1 - 2e-2
+
+    frames = 0
+    for g in range(EPOCHS):
         s1       = env.reset()
         terminal = False
 
-        reward = 0
         while not terminal:
+            frames += 1
             env.render()
 
             s = s1.reshape(1, -1)
-
             action = None
-            if np.random.rand() > EXPLORATION:
-                action = actor.predict(s)[0]
+            if action_noise:
+                if np.random.rand() > EXP:
+                    action = actor.predict(s)[0]
+                else:
+                    action = np.random.choice(actions)
             else:
-                action = np.random.choice(actions)
+                action = actor.predict(s)[0]
 
             s2, r2, terminal, _ = env.step(action)
-            reward += r2
-
             rpbuffer.add((s1, action, r2, terminal, s2))
             s1 = s2
 
@@ -69,14 +66,13 @@ def train(env, actor, rpbuffer):
 
             actor.update_target_network()
 
-        EXPLORATION = EXPLORATION * DECAY
+        if action_noise:
+            EXP *= DEC
 
-        generations.append(g)
-        rewards.append(reward)
-        
-        sys.stdout.write("\rEXPLORATION {} \r".format(EXPLORATION))
-        plt.plot(generations, rewards)
-        plt.pause(0.001)
+        print(frames)
+        print(EXP)
+
+        print()
 
     env.close()
 
@@ -102,7 +98,7 @@ if __name__ == "__main__":
     env = gym.make(ENV)
 
     with tf.Session() as sess:
-        actor         = dqn.DQN(sess, LEARNING_RATE, ACTION_SPACE, STATE_SPACE, tau=TAU)
+        actor         = dqn.DQN(sess, LEARNING_RATE, ACTION_SPACE, STATE_SPACE, tau=TAU, parameter_noise=True)
         rpbuffer = replay_buffer.ReplayBuffer(FRAME_SZ)
 
         saver = tf.train.Saver()
@@ -116,7 +112,7 @@ if __name__ == "__main__":
         try: 
             if "-p" in sys.argv:
                 print("Playing...")
-                play(env, actor)
+                play(env, actor, action_noise=False)
             else:
                 train(env, actor, rpbuffer)
         except KeyboardInterrupt:

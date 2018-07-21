@@ -1,16 +1,10 @@
 ## DQN implementation in tensorflow
-> https://gym.openai.com/envs/CartPole-v0/ Simulator
---- 
-> https://arxiv.org/pdf/1312.5602.pdf algorithm
+based on
+  * https://arxiv.org/pdf/1312.5602.pdf
+  * https://arxiv.org/abs/1706.01905 (Action noise also available)
+  * https://arxiv.org/pdf/1509.06461.pdf
+  * https://arxiv.org/abs/1607.06450
 
 
-### Test it
-1. pip3 install -r requirements.txt
-2. python3 main.py (Let it run for ca 300 generations then stop with keyboard interrupt)
-3. python3 main.py -r -p (To run the trained model! :)) 
+Default uses Parameter noise but can't really distinguish performance from Action Noise
 
-
-You can also run 
-> python3 main.py -r
-
-to keep training the previous model

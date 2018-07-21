@@ -1,5 +1,6 @@
 import tensorflow as tf
 import numpy as np
+import noise
 
 
 
@@ -11,19 +12,29 @@ HIDDEN_CONNECTIONS = 64
 
 class DQN(object):
 
-    def __init__(self, session, learning_rate, action_space, state_space, var_index=0, tau=0.1):
+    def __init__(self, session, learning_rate, action_space, state_space, 
+                 var_index=0, tau=0.1, delta=0.5, sigma=0.3, ou_a=0.3, 
+                 ou_mu = 0.0, decay=3e-4, parameter_noise=True):
+
         self.session       = session
         self.learning_rate = learning_rate
         self.action_space  = action_space
         self.state_space   = state_space
 
+        self.parameter_noise = parameter_noise
+        self.noise_process   = noise.OrnsteinNoiseTensorflow(delta,
+                                                             sigma,
+                                                             ou_a,
+                                                             ou_mu,
+                                                             decay=decay)
+
         state, out = self.create_network("vanilla")
-        action, label, loss, optimize = self.create_training(out, "vanilla")
+        action, env_util, loss, optimize = self.create_training(out, "vanilla")
 
         vanilla_variables = tf.trainable_variables()[var_index:]
 
         target_state, target_out = self.create_network("target")
-        target_action, target_label, _, _ = self.create_training(target_out, "target")
+        target_action, target_env_util, _, _ = self.create_training(target_out, "target")
 
         target_variables = tf.trainable_variables()[var_index + len(vanilla_variables):]
 
@@ -43,12 +54,12 @@ class DQN(object):
         self.state    = state
         self.out      = out
         self.action   = action
-        self.label    = label
+        self.env_util    = env_util
 
         self.target_state  = target_state
         self.target_out    = target_out
         self.target_action = target_action
-        self.target_label  = target_label
+        self.target_env_util  = target_env_util
 
         self.choice        = tf.argmax(out, axis=1)
         self.target_choice = tf.argmax(target_out, axis=1)
@@ -78,39 +89,58 @@ class DQN(object):
 
             """ Graph """
 
-            h0       = tf.matmul(state, dense0_w)
-            h0       = tf.nn.tanh(h0 + dense0_b)
+            if self.parameter_noise and name == "vanilla":
+                dense0_w = self.noise_process(dense0_w)
 
-            h1       = tf.matmul(h0, dense1_w)
-            h1       = tf.nn.tanh(h1 + dense0_b)
+            h0    = tf.matmul(state, dense0_w)
+            h0    = tf.nn.tanh(h0 + dense0_b)
 
-            out      = tf.matmul(h1, out_w)
-            out      = out + out_b
+            h0    = tf.contrib.layers.layer_norm(h0)
+
+            if self.parameter_noise and name == "vanilla":
+                dense1_w = self.noise_process(dense1_w)
+
+            h1    = tf.matmul(h0, dense1_w)
+            h1    = tf.nn.tanh(h1 + dense1_b)
+
+            h1    = tf.contrib.layers.layer_norm(h1)
+
+            if self.parameter_noise and name == "vanilla":
+                out_w = self.noise_process(out_w)
+
+            out    = tf.matmul(h1, out_w)
+            out    = out + out_b
 
         return state, out
 
     def create_training(self, out, name):
 
         with tf.name_scope(name):
+
             action    = tf.placeholder(tf.int32,   [None])
-            label     = tf.placeholder(tf.float32, [None])
+            env_util  = tf.placeholder(tf.float32, [None])
 
-            label_    = tf.reshape(label, [-1, 1])
-            one_hots  = tf.one_hot(action, self.action_space)
+            #################################
+            # out: [X,..X,...Q,...X,..]     #
+            # action: index of Q            #
+            # env_util: new Q               #
+            #                               #
+            # Manipulate action and env to  #
+            # C: [X, ..X,...new Q,...X..]   #
+            #################################
 
-            label_    = tf.multiply(label_, one_hots)
+            A  = tf.reshape(env_util, [-1, 1])
+            B  = tf.one_hot(action, self.action_space)
+            A  = tf.multiply(A, B)
+            C  = tf.multiply(out, B)
+            C  = tf.subtract(out, C)
+            C  = tf.add(C, A)
 
-            """ Manipulate so that only action Q_value is updated with new Q_value"""
-            X         = tf.multiply(out, one_hots)
-            X         = tf.subtract(out, X)
 
-            label_    = tf.add(X, label_)
-
-
-            loss      = tf.losses.mean_squared_error(out, label_)
+            loss      = tf.losses.mean_squared_error(out, C)
             optimizer = tf.train.GradientDescentOptimizer(learning_rate=self.learning_rate).minimize(loss)
 
-        return action, label, loss, optimizer
+        return action, env_util, loss, optimizer
 
     def predict(self, state):
         return self.session.run(self.choice, feed_dict={ self.state: state })
@@ -124,12 +154,12 @@ class DQN(object):
     def target_Q_value(self, state):
         return self.session.run(self.target_out, feed_dict={self.target_state: state})
 
-    def train(self, state, action, label):
-        _, l = self.session.run((self.optimize, self.loss),
+    def train(self, state, action, env_util):
+        l = self.session.run((*self.noise_process.noise_update_tensors(), self.optimize, self.loss),
                                 feed_dict={ self.state : state
                                           , self.action: action
-                                          , self.label : label
-                                          })
+                                          , self.env_util : env_util
+                                          })[-1]
         return l
 
     def update_target_network(self):
