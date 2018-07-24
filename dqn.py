@@ -8,7 +8,7 @@ def trainable_weigth(shape):
     initial = tf.truncated_normal(shape, stddev=0.1)
     return tf.Variable(initial, dtype=tf.float32)
 
-HIDDEN_CONNECTIONS = 64
+HIDDEN_CONNECTIONS = 10
 
 class DQN(object):
 
@@ -27,6 +27,8 @@ class DQN(object):
                                                              ou_a,
                                                              ou_mu,
                                                              decay=decay)
+
+        self.variables_to_normalize = []
 
         state, out = self.create_network("vanilla")
         action, env_util, loss, optimize = self.create_training(out, "vanilla")
@@ -48,6 +50,16 @@ class DQN(object):
         ####################################################
 
         # https://datascience.stackexchange.com/questions/32246/q-learning-target-network-vs-double-dqn
+
+        self.normalize_ops = []
+        for layer_var in self.variables_to_normalize:
+            mean, variance = tf.nn.moments(layer_var, axes=1)
+
+            mean     = tf.expand_dims(mean, [1])
+            variance = tf.expand_dims(variance, [1])
+
+            normalize_op = layer_var.assign((layer_var - mean) / tf.sqrt(variance + 1e-5))
+            self.normalize_ops.append(normalize_op)
 
 
         """ Tensors needed for DQN. """
@@ -79,37 +91,30 @@ class DQN(object):
             state    = tf.placeholder(tf.float32, [None, self.state_space])
 
             dense0_w = trainable_weigth([self.state_space, HIDDEN_CONNECTIONS])
-            dense0_b = trainable_weigth([HIDDEN_CONNECTIONS])
-
             dense1_w = trainable_weigth([HIDDEN_CONNECTIONS, HIDDEN_CONNECTIONS])
-            dense1_b = trainable_weigth([HIDDEN_CONNECTIONS])
-
             out_w    = trainable_weigth([HIDDEN_CONNECTIONS, self.action_space])
-            out_b    = trainable_weigth([self.action_space])
+
+            if name == "vanilla":
+                self.variables_to_normalize.append(dense0_w)
+                self.variables_to_normalize.append(dense1_w)
+                self.variables_to_normalize.append(out_w)
 
             """ Graph """
 
             if self.parameter_noise and name == "vanilla":
                 dense0_w = self.noise_process(dense0_w)
 
-            h0    = tf.matmul(state, dense0_w)
-            h0    = tf.nn.tanh(h0 + dense0_b)
-
-            h0    = tf.contrib.layers.layer_norm(h0)
+            h0    = tf.nn.tanh(tf.matmul(state, dense0_w))
 
             if self.parameter_noise and name == "vanilla":
                 dense1_w = self.noise_process(dense1_w)
 
-            h1    = tf.matmul(h0, dense1_w)
-            h1    = tf.nn.tanh(h1 + dense1_b)
-
-            h1    = tf.contrib.layers.layer_norm(h1)
+            h1    = tf.nn.tanh(tf.matmul(h0, dense1_w))
 
             if self.parameter_noise and name == "vanilla":
                 out_w = self.noise_process(out_w)
 
             out    = tf.matmul(h1, out_w)
-            out    = out + out_b
 
         return state, out
 
@@ -138,7 +143,7 @@ class DQN(object):
 
 
             loss      = tf.losses.mean_squared_error(out, C)
-            optimizer = tf.train.GradientDescentOptimizer(learning_rate=self.learning_rate).minimize(loss)
+            optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(loss)
 
         return action, env_util, loss, optimizer
 
@@ -160,6 +165,8 @@ class DQN(object):
                                           , self.action: action
                                           , self.env_util : env_util
                                           })[-1]
+
+        self.session.run(self.normalize_ops)
         return l
 
     def update_target_network(self):

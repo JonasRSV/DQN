@@ -103,11 +103,11 @@ if __name__ == "__main__":
 
         saver = tf.train.Saver()
 
-        if "-r" in sys.argv:
+        if "-n" in sys.argv:
+            sess.run(tf.global_variables_initializer())
+        else:
             saver.restore(sess, "model/")
             print("Restored...")
-        else:
-            sess.run(tf.global_variables_initializer())
 
         try: 
             if "-p" in sys.argv:
