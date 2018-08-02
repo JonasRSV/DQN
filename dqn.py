@@ -1,129 +1,123 @@
 import tensorflow as tf
 import numpy as np
-import noise
+from collections import deque
+import random
+
+def exploration(a_dim, d=0.001):
+    e = 1
+    a = np.arange(a_dim)
+    while True:
+        if np.random.rand() < e:
+            yield np.array([np.random.choice(a)])
+        else:
+            yield None
+
+        e -= d
+
+        if e <= 0.1:
+            d = 0
 
 
+class ExperienceReplay(object):
 
-def trainable_weigth(shape):
-    initial = tf.truncated_normal(shape, stddev=0.1)
-    return tf.Variable(initial, dtype=tf.float32)
+    def __init__(self, capacity):
+        self.buffer   = deque(maxlen=capacity)
+        self.capacity = capacity
 
-HIDDEN_CONNECTIONS = 10
+    def add(self, frame):
+        self.buffer.append(frame)
+
+    def get(self, batchsz):
+
+        if len(self.buffer) < batchsz:
+            batchsz = len(self.buffer)
+
+        choices = random.sample(self.buffer, batchsz)
+
+        sb_1 = []
+        ab_1 = []
+        rb_1 = []
+        db_1 = []
+        sb_2 = []
+
+        while batchsz:
+            sb1, ab1, rb1, db1, sb2 = choices.pop()
+
+            sb_1.append(sb1)
+            ab_1.append(ab1)
+            rb_1.append(rb1)
+            db_1.append(db1)
+            sb_2.append(sb2)
+
+            batchsz -= 1
+
+        """ numpyfy """
+        sb_1 = np.array(sb_1)
+        ab_1 = np.array(ab_1)
+        rb_1 = np.array(rb_1)
+        db_1 = np.array(db_1)
+        sb_2 = np.array(sb_2)
+
+        return sb_1, ab_1, rb_1, db_1, sb_2
+
 
 class DQN(object):
 
-    def __init__(self, session, learning_rate, action_space, state_space, 
-                 var_index=0, tau=0.1, delta=0.5, sigma=0.3, ou_a=0.3, 
-                 ou_mu = 0.0, decay=3e-4, parameter_noise=True):
+    def __init__(self, state_dim, action_dim, memory=0.99, lr=0.001,
+                 tau=0.1, hidden_layers=3, hidden_neurons=32,
+                 dropout=0.0, regularization=0.01, scope="dqn", training=True, 
+                 max_exp_replay=100000, exp_batch=1024, exp_decay=0.001):
 
-        self.session       = session
-        self.learning_rate = learning_rate
-        self.action_space  = action_space
-        self.state_space   = state_space
+        self.sess  = tf.get_default_session()
+        self.lr    = lr
+        self.s_dim = state_dim
+        self.a_dim = action_dim
+        self.memory = memory
 
-        self.parameter_noise = parameter_noise
-        self.noise_process   = noise.OrnsteinNoiseTensorflow(delta,
-                                                             sigma,
-                                                             ou_a,
-                                                             ou_mu,
-                                                             decay=decay)
+        self.exp_replay = ExperienceReplay(max_exp_replay)
+        self.exp_batch  = exp_batch
 
-        self.variables_to_normalize = []
+        self.training = training
+        self.explorer = exploration(self.a_dim, exp_decay)
 
-        state, out = self.create_network("vanilla")
-        action, env_util, loss, optimize = self.create_training(out, "vanilla")
+        with tf.variable_scope(scope):
+            with tf.variable_scope("pi"):
+                self.state, self.out =\
+                        self.create_network(hidden_layers,
+                                            hidden_neurons,
+                                            dropout,
+                                            regularization)
 
-        vanilla_variables = tf.trainable_variables()[var_index:]
-
-        target_state, target_out = self.create_network("target")
-        target_action, target_env_util, _, _ = self.create_training(target_out, "target")
-
-        target_variables = tf.trainable_variables()[var_index + len(vanilla_variables):]
-
-        update_op = [target_var.assign(tf.multiply(target_var, 1 - tau) +\
-                                       tf.multiply(vanilla_var, tau))
-                            for target_var, vanilla_var in zip(target_variables, vanilla_variables)]
-
-        ####################################################
-        # Good explanation of Double DQN vs Target Network #
-        # This implementation can easily use any of them.  #
-        ####################################################
-
-        # https://datascience.stackexchange.com/questions/32246/q-learning-target-network-vs-double-dqn
-
-        self.normalize_ops = []
-        for layer_var in self.variables_to_normalize:
-            mean, variance = tf.nn.moments(layer_var, axes=1)
-
-            mean     = tf.expand_dims(mean, [1])
-            variance = tf.expand_dims(variance, [1])
-
-            normalize_op = layer_var.assign((layer_var - mean) / tf.sqrt(variance + 1e-5))
-            self.normalize_ops.append(normalize_op)
+            with tf.variable_scope("target_pi"):
+                self.target_state, self.target_out =\
+                        self.create_network(hidden_layers,
+                                            hidden_neurons,
+                                            dropout,
+                                            regularization)
 
 
-        """ Tensors needed for DQN. """
-        self.state    = state
-        self.out      = out
-        self.action   = action
-        self.env_util    = env_util
+            pi_vars        = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 
+                                           '{}/pi'.format(scope))
 
-        self.target_state  = target_state
-        self.target_out    = target_out
-        self.target_action = target_action
-        self.target_env_util  = target_env_util
+            target_pi_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, 
+                                           '{}/target_pi'.format(scope))
 
-        self.choice        = tf.argmax(out, axis=1)
-        self.target_choice = tf.argmax(target_out, axis=1)
+            #####################
+            # Update Target Ops #
+            #####################
+            self.update_op = [tpv.assign(tf.multiply(tpv, 1 - tau) +\
+                                                   tf.multiply(pv, tau))
+                                for tpv, pv in zip(target_pi_vars, pi_vars)]
 
-        self.loss     = loss
-        self.optimize = optimize
+            self.equal_op = [tpv.assign(pv)
+                                for tpv, pv in zip(target_pi_vars, pi_vars)]
 
-        self.update_op = update_op
+            ######################
+            # Update Network Ops #
+            ######################
 
-        # Use var_index if this is not the first network that is created.
-        self.var_index = var_index + len(vanilla_variables) + len(target_variables)
-
-    def create_network(self, name):
-
-        with tf.name_scope(name):
-            """ Trainable weights. """
-            state    = tf.placeholder(tf.float32, [None, self.state_space])
-
-            dense0_w = trainable_weigth([self.state_space, HIDDEN_CONNECTIONS])
-            dense1_w = trainable_weigth([HIDDEN_CONNECTIONS, HIDDEN_CONNECTIONS])
-            out_w    = trainable_weigth([HIDDEN_CONNECTIONS, self.action_space])
-
-            if name == "vanilla":
-                self.variables_to_normalize.append(dense0_w)
-                self.variables_to_normalize.append(dense1_w)
-                self.variables_to_normalize.append(out_w)
-
-            """ Graph """
-
-            if self.parameter_noise and name == "vanilla":
-                dense0_w = self.noise_process(dense0_w)
-
-            h0    = tf.nn.tanh(tf.matmul(state, dense0_w))
-
-            if self.parameter_noise and name == "vanilla":
-                dense1_w = self.noise_process(dense1_w)
-
-            h1    = tf.nn.tanh(tf.matmul(h0, dense1_w))
-
-            if self.parameter_noise and name == "vanilla":
-                out_w = self.noise_process(out_w)
-
-            out    = tf.matmul(h1, out_w)
-
-        return state, out
-
-    def create_training(self, out, name):
-
-        with tf.name_scope(name):
-
-            action    = tf.placeholder(tf.int32,   [None])
-            env_util  = tf.placeholder(tf.float32, [None])
+            self.action      = tf.placeholder(tf.int32,   [None])
+            self.expected_qs = tf.placeholder(tf.float32, [None])
 
             #################################
             # out: [X,..X,...Q,...X,..]     #
@@ -134,41 +128,95 @@ class DQN(object):
             # C: [X, ..X,...new Q,...X..]   #
             #################################
 
-            A  = tf.reshape(env_util, [-1, 1])
-            B  = tf.one_hot(action, self.action_space)
+            A  = tf.reshape(self.expected_qs, [-1, 1])
+            B  = tf.one_hot(self.action, self.a_dim)
             A  = tf.multiply(A, B)
-            C  = tf.multiply(out, B)
-            C  = tf.subtract(out, C)
+            C  = tf.multiply(self.out, B)
+            C  = tf.subtract(self.out, C)
             C  = tf.add(C, A)
 
+            self.loss     = tf.losses.mean_squared_error(self.out, C)
+            self.optimize = tf.train.AdamOptimizer(learning_rate=self.lr).minimize(self.loss)
 
-            loss      = tf.losses.mean_squared_error(out, C)
-            optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(loss)
+    def create_network(self, 
+                       layers, 
+                       neurons, 
+                       dropout,
+                       regularization):
 
-        return action, env_util, loss, optimizer
+        state  = tf.placeholder(tf.float32, [None, self.s_dim])
+
+        regularizer = tf.contrib.layers.l2_regularizer(regularization)
+        initializer = tf.contrib.layers.variance_scaling_initializer()
+        
+        x = tf.layers.dense(state, 
+                            neurons,
+                            activation=tf.nn.elu,
+                            kernel_initializer=initializer,
+                            kernel_regularizer=regularizer)
+
+        x = tf.layers.dropout(x, rate=dropout, training=self.training)
+
+        for _ in range(layers):
+            x = tf.layers.dense(x,
+                                neurons,
+                                activation=tf.nn.elu,
+                                kernel_initializer=initializer,
+                                kernel_regularizer=regularizer)
+
+            x = tf.layers.dropout(x, rate=dropout, training=self.training)
+
+        out = tf.layers.dense(x, 
+                             self.a_dim, 
+                             activation=None, 
+                             kernel_regularizer=regularizer)
+
+        return state, out
+
 
     def predict(self, state):
-        return self.session.run(self.choice, feed_dict={ self.state: state })
+        ## TODO FIX BETTER EXPLORATION
+        values = self.sess.run(self.out, feed_dict={ self.state: state })
+
+        if self.training:
+            suggestion = next(self.explorer)
+            if suggestion:
+                return suggestion
+
+        return np.argmax(values, axis=1)
 
     def target_predict(self, state):
-        return self.session.run(self.target_choice, feed_dict={ self.target_state: state })
+        return np.argmax(self.sess.run(self.target_out, feed_dict={ self.target_state: state }))
 
     def Q_value(self, state):
-        return self.session.run(self.out, feed_dict={self.state: state})
+        return self.sess.run(self.out, feed_dict={self.state: state})
 
     def target_Q_value(self, state):
-        return self.session.run(self.target_out, feed_dict={self.target_state: state})
+        return self.sess.run(self.target_out, feed_dict={self.target_state: state})
 
-    def train(self, state, action, env_util):
-        l = self.session.run((*self.noise_process.noise_update_tensors(), self.optimize, self.loss),
-                                feed_dict={ self.state : state
-                                          , self.action: action
-                                          , self.env_util : env_util
+    def train(self):
+        s1b, a1b, r1b, tb, s2b = self.exp_replay.get(self.exp_batch)
+
+        next_q_pred    = self.target_Q_value(s2b)
+        current_q_pred = r1b + self.memory * (1 - tb) * np.amax(next_q_pred, axis=1)
+
+        l = self.sess.run((self.optimize, self.loss),
+                                feed_dict={ self.state : s1b
+                                          , self.action: a1b
+                                          , self.expected_qs: current_q_pred
                                           })[-1]
 
-        self.session.run(self.normalize_ops)
+        self.update_target_network()
+
         return l
 
     def update_target_network(self):
-        self.session.run(self.update_op)
+        self.sess.run(self.update_op)
+
+    def set_networks_equal(self):
+        self.sess.run(self.equal_op)
+
+    def add_experience(self, experience):
+        self.exp_replay.add(experience)
+
 
