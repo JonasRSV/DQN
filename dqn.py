@@ -3,20 +3,6 @@ import numpy as np
 from collections import deque
 import random
 
-def exploration(a_dim, d=0.001):
-    e = 1
-    a = np.arange(a_dim)
-    while True:
-        if np.random.rand() < e:
-            yield np.array([np.random.choice(a)])
-        else:
-            yield None
-
-        e -= d
-
-        if e <= 0.1:
-            d = 0
-
 
 class ExperienceReplay(object):
 
@@ -63,22 +49,21 @@ class ExperienceReplay(object):
 
 class DQN(object):
 
-    def __init__(self, state_dim, action_dim, memory=0.99, lr=0.001,
+    def __init__(self, state_dim, action_dim, memory=0.99, lr=0.01,
                  tau=0.1, hidden_layers=3, hidden_neurons=32,
                  dropout=0.0, regularization=0.01, scope="dqn", training=True, 
-                 max_exp_replay=100000, exp_batch=1024, exp_decay=0.001):
+                 max_exp_replay=100000, exp_batch=1024, lr_decay=0.001,
+                 noise_decay=0.001):
 
         self.sess  = tf.get_default_session()
-        self.lr    = lr
         self.s_dim = state_dim
         self.a_dim = action_dim
-        self.memory = memory
+        self.memory = tf.constant(memory, tf.float32)
 
         self.exp_replay = ExperienceReplay(max_exp_replay)
         self.exp_batch  = exp_batch
 
         self.training = training
-        self.explorer = exploration(self.a_dim, exp_decay)
 
         with tf.variable_scope(scope):
             with tf.variable_scope("pi"):
@@ -116,8 +101,10 @@ class DQN(object):
             # Update Network Ops #
             ######################
 
-            self.action      = tf.placeholder(tf.int32,   [None])
-            self.expected_qs = tf.placeholder(tf.float32, [None])
+            mask          = tf.ones(self.a_dim)
+            self.action   = tf.placeholder(tf.int32,   [None])
+            self.reward   = tf.placeholder(tf.float32, [None])
+            self.terminal = tf.placeholder(tf.int32, [None])
 
             #################################
             # out: [X,..X,...Q,...X,..]     #
@@ -128,15 +115,55 @@ class DQN(object):
             # C: [X, ..X,...new Q,...X..]   #
             #################################
 
-            A  = tf.reshape(self.expected_qs, [-1, 1])
-            B  = tf.one_hot(self.action, self.a_dim)
-            A  = tf.multiply(A, B)
-            C  = tf.multiply(self.out, B)
-            C  = tf.subtract(self.out, C)
-            C  = tf.add(C, A)
+            action_mask    = tf.one_hot(self.action, self.a_dim) 
+            prev_util_mask = mask - action_mask
 
-            self.loss     = tf.losses.mean_squared_error(self.out, C)
-            self.optimize = tf.train.AdamOptimizer(learning_rate=self.lr).minimize(self.loss)
+            exp_util = self.reward +\
+                    tf.to_float(1 - self.terminal) * self.memory * tf.reduce_max(self.target_out, axis=1)
+
+            exp_util = self.out * prev_util_mask + action_mask * tf.expand_dims(exp_util, [1])
+
+            self.loss = tf.losses.huber_loss(self.out, exp_util)
+
+            lr_scale = tf.Variable(1.0, dtype=tf.float32)
+            self.optimize = tf.train.AdamOptimizer(learning_rate=lr * lr_scale).minimize(self.loss)
+
+
+            ##########################
+            # Exploration and decays #
+            ##########################
+            lr_decay    = tf.constant(1 - lr_decay, dtype=tf.float32)
+            noise_decay = tf.constant(1 - noise_decay, dtype=tf.float32)
+            noise       = tf.Variable(1, dtype=tf.float32)
+
+            batch         = tf.shape(self.out)[0]
+            stochastic_a  = tf.random_uniform(dtype=tf.int64, 
+                                              minval=0, 
+                                              maxval=self.a_dim,
+                                              shape=[batch])
+
+            stochastic_c  = tf.random_uniform(dtype=tf.float32,
+                                              minval=0,
+                                              maxval=1,
+                                              shape=[batch]) < noise
+
+            ##############################
+            # This is not used.. but meh #
+            ##############################
+            self.deterministic_target_out = tf.argmax(self.target_out, axis=1)
+
+            self.deterministic_out = tf.argmax(self.out, axis=1)
+            self.stochastic_out    = tf.where(stochastic_c, stochastic_a, self.deterministic_out)
+
+            update_lr_op  = lr_scale.assign(lr_scale * lr_decay)
+            update_exp_op = noise.assign(noise * noise_decay)
+
+            self.u_exp_lr_op = (update_lr_op, update_exp_op)
+
+            if training:
+                self.predict = self._predict
+            else:
+                self.predict = self._stochastic_predict
 
     def create_network(self, 
                        layers, 
@@ -148,6 +175,7 @@ class DQN(object):
 
         regularizer = tf.contrib.layers.l2_regularizer(regularization)
         initializer = tf.contrib.layers.variance_scaling_initializer()
+        # initializer = tf.truncated_normal_initializer(mean=0, stddev=0.01)
         
         x = tf.layers.dense(state, 
                             neurons,
@@ -173,20 +201,14 @@ class DQN(object):
 
         return state, out
 
+    def _predict(self, state):
+        return self.sess.run(self.deterministic_out, feed_dict={ self.state: state })
 
-    def predict(self, state):
-        ## TODO FIX BETTER EXPLORATION
-        values = self.sess.run(self.out, feed_dict={ self.state: state })
-
-        if self.training:
-            suggestion = next(self.explorer)
-            if suggestion:
-                return suggestion
-
-        return np.argmax(values, axis=1)
+    def _stochastic_predict(self, state):
+        return self.sess.run(self.stochastic_out, feed_dict={ self.state: state })
 
     def target_predict(self, state):
-        return np.argmax(self.sess.run(self.target_out, feed_dict={ self.target_state: state }))
+        return self.sess.run(self.deterministic_target_out, feed_dict={ self.target_state: state })
 
     def Q_value(self, state):
         return self.sess.run(self.out, feed_dict={self.state: state})
@@ -197,15 +219,15 @@ class DQN(object):
     def train(self):
         s1b, a1b, r1b, tb, s2b = self.exp_replay.get(self.exp_batch)
 
-        next_q_pred    = self.target_Q_value(s2b)
-        current_q_pred = r1b + self.memory * (1 - tb) * np.amax(next_q_pred, axis=1)
-
         l = self.sess.run((self.optimize, self.loss),
                                 feed_dict={ self.state : s1b
                                           , self.action: a1b
-                                          , self.expected_qs: current_q_pred
+                                          , self.target_state: s2b
+                                          , self.reward: r1b
+                                          , self.terminal: tb
                                           })[-1]
 
+        self.sess.run(self.u_exp_lr_op)
         self.update_target_network()
 
         return l

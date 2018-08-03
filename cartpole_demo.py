@@ -23,7 +23,7 @@ if __name__ == "__main__":
                         2,
                         memory=0.99,
                         lr=0.01,
-                        tau=0.01,
+                        tau=0.1,
                         exp_batch=64,
                         training=training)
 
