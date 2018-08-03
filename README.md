@@ -5,5 +5,7 @@ based on
   * https://arxiv.org/abs/1607.06450
 
 
+RUN: python3 cartpole\_demo.py -n -t
+
 
 <a href="https://giphy.com/gifs/1jaMfIL5LHFAdrjM3h"> <img src="https://media.giphy.com/media/1jaMfIL5LHFAdrjM3h/giphy.gif" title="Cartpole demo"/></a>
