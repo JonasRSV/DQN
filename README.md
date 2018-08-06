@@ -4,6 +4,9 @@ based on
   * https://arxiv.org/pdf/1509.06461.pdf
   * https://arxiv.org/abs/1607.06450
 
+### Requirements
+  * Python3 3.x
+
 
 > INSTALL: pip3 install -r requirements.txt
 
