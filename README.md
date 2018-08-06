@@ -5,7 +5,14 @@ based on
   * https://arxiv.org/abs/1607.06450
 
 
-RUN: python3 cartpole\_demo.py -n -t
+INSTALL: pip3 install -r requirements.txt
+---
+
+TRAIN: python3 cartpole\_demo.py -n
+---
+
+PLAY: python3 cartpole\_demo.py -p
+---
 
 
-<a href="https://giphy.com/gifs/1jaMfIL5LHFAdrjM3h"> <img width=200px src="https://media.giphy.com/media/1jaMfIL5LHFAdrjM3h/giphy.gif" title="Cartpole demo"/></a>
+<a href="https://giphy.com/gifs/1jaMfIL5LHFAdrjM3h"> <img width=400px src="https://media.giphy.com/media/1jaMfIL5LHFAdrjM3h/giphy.gif" title="Cartpole demo"/></a>
