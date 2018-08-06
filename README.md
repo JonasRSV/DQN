@@ -17,5 +17,11 @@ based on
 > PLAY: python3 cartpole\_demo.py -p
 
 
+Summaries
+---
+Start Tensorboard on the summaries directory, create one if there is none then run:
+> tensorboard --logdir=summaries
+
+
 #### Demo
 <a href="https://giphy.com/gifs/1jaMfIL5LHFAdrjM3h"> <img width=400px src="https://media.giphy.com/media/1jaMfIL5LHFAdrjM3h/giphy.gif" title="Cartpole demo"/></a>
