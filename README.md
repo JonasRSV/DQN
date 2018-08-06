@@ -8,4 +8,4 @@ based on
 RUN: python3 cartpole\_demo.py -n -t
 
 
-<a href="https://giphy.com/gifs/1jaMfIL5LHFAdrjM3h"> <img src="https://media.giphy.com/media/1jaMfIL5LHFAdrjM3h/giphy.gif" title="Cartpole demo"/></a>
+<a href="https://giphy.com/gifs/1jaMfIL5LHFAdrjM3h"> <img width=200px src="https://media.giphy.com/media/1jaMfIL5LHFAdrjM3h/giphy.gif" title="Cartpole demo"/></a>
