@@ -8,20 +8,20 @@ based on
   * Python3 3.x
 
 
-> INSTALL: pip3 install -r requirements.txt
+Installation
+```bash
+> pip3 install -r requirements.txt
+```
 
-
-> TRAIN: python3 cartpole\_demo.py -n
-
-
-> PLAY: python3 cartpole\_demo.py -p
-
+```bash
+> python3 cartpole_demo.py -n (Train Model)
+> python3 cartpole_demo.py -p (Play Trained Model)
+```
 
 Summaries
 ---
 Start Tensorboard on the summaries directory, create one if there is none then run:
 > tensorboard --logdir=summaries
-
 
 #### Demo
 <a href="https://giphy.com/gifs/1jaMfIL5LHFAdrjM3h"> <img width=399px src="https://media.giphy.com/media/1jaMfIL5LHFAdrjM3h/giphy.gif" title="Cartpole demo"/></a>
